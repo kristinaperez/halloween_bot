@@ -37,7 +37,7 @@ const welcome = () =>
   '📂 Шаблон CLAUDE.md для веб-проекта\n' +
   '🧪 Шаблон первого скилла\n' +
   '⚡ Шпаргалка команд Claude Code\n' +
-  '🎁 И бонус — 10 скиллов для Claude Code\n\n' +
+  '🎁 И бонус — 10 топовых скиллов для Claude Code\n\n' +
   `Раздача до ${deadlineStr()}. Жмите кнопку 👇`;
 
 const over = () =>
@@ -195,7 +195,7 @@ async function sendInvoice(d: Deps, uid: number) {
   await d.tg.call('sendInvoice', {
     chat_id: uid,
     title: 'Стартовый набор вайб-кодера',
-    description: 'Карта курсов Академии Claude, шаблоны CLAUDE.md и первого скилла, шпаргалка Claude Code + бонус: 10 скиллов. 5 PDF прямо в бот.',
+    description: 'Карта курсов Академии Claude, шаблоны CLAUDE.md и первого скилла, шпаргалка Claude Code + бонус: 10 топовых скиллов. 5 PDF прямо в бот.',
     payload: `kit:${uid}`,
     currency: 'XTR',
     prices: [{label: 'Стартовый набор', amount: cfg.priceStars()}],
