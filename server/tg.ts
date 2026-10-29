@@ -1,4 +1,4 @@
-import {cfg} from './config.ts';
+import {cfg} from './config.js';
 
 export type FileField = {name: string; data: Uint8Array; filename: string; type: string};
 

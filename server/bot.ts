@@ -8,10 +8,10 @@
  */
 import {readFile} from 'node:fs/promises';
 import {readdirSync} from 'node:fs';
-import {cfg, isOver, deadlineStr, asset} from './config.ts';
-import {Users, type User} from './store.ts';
-import {type TG, TelegramError} from './tg.ts';
-import {makePoster} from './poster.ts';
+import {cfg, isOver, deadlineStr, asset} from './config.js';
+import {Users, type User} from './store.js';
+import {type TG, TelegramError} from './tg.js';
+import {makePoster} from './poster.js';
 
 export type Deps = {tg: TG; users: Users; fetchPost: (channel: string, id: string) => Promise<string | null>};
 
@@ -92,14 +92,14 @@ async function sendWelcome(d: Deps, chat: number) {
 export async function deliverKit(d: Deps, userId: number) {
   await send(d, userId, '🎁 <b>Ваш Стартовый набор вайб-кодера!</b>');
   const cached = await d.users.getCache<string[]>('kit');
-  const files = readdirSync(asset('kit')).filter(f => f.endsWith('.pdf')).sort();
+  const files = readdirSync(asset('assets/kit')).filter(f => f.endsWith('.pdf')).sort();
   const caption = (f: string) => (f.includes('Бонус') ? 'И ещё бонус от меня 🎁' : undefined);
   if (cached && cached.length === files.length) {
     await d.tg.call('sendMediaGroup', {chat_id: userId, media: cached.map((id, i) => ({type: 'document', media: id, caption: caption(files[i])}))});
   } else {
     const media = files.map((f, i) => ({type: 'document', media: `attach://f${i}`, caption: caption(f)}));
     const uploads = await Promise.all(files.map(async (f, i) => ({
-      name: `f${i}`, data: new Uint8Array(await readFile(asset(`kit/${f}`))), filename: f, type: 'application/pdf',
+      name: `f${i}`, data: new Uint8Array(await readFile(asset(`assets/kit/${f}`))), filename: f, type: 'application/pdf',
     })));
     const msgs = await d.tg.upload('sendMediaGroup', {chat_id: String(userId), media}, uploads);
     await d.users.setCache('kit', msgs.map((m: any) => m.document.file_id));

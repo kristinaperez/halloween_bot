@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict';
 import {writeFileSync, readFileSync} from 'node:fs';
 process.env.CHANNEL_ID='-1003772984999'; process.env.ADMIN_ID='6713072327'; process.env.CHANNEL_INVITE_LINK='https://t.me/+abc';
-const {MemoryKV, Users} = await import('../server/store.ts');
-const bot = await import('../server/bot.ts');
-const {makePoster} = await import('../server/poster.ts');
+const {MemoryKV, Users} = await import('../server/store.js');
+const bot = await import('../server/bot.js');
+const {makePoster} = await import('../server/poster.js');
 
 const log=[]; let members=new Set([1]);
 const tg={

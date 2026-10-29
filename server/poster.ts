@@ -1,6 +1,6 @@
 import {readFile} from 'node:fs/promises';
 import sharp from 'sharp';
-import {asset} from './config.ts';
+import {asset} from './config.js';
 
 // Круг на обложке 2160x2700: левый верхний угол и диаметр
 const LEFT = 27, TOP = 1925, D = 390;
