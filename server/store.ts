@@ -20,6 +20,9 @@ export interface KV {
   set(key: string, value: unknown): Promise<void>;
   /** Записать, только если ключа ещё нет. true — записали (ключ был свободен). */
   setOnce(key: string, ttlSeconds: number): Promise<boolean>;
+  /** Записать значение, только если ключа ещё нет. */
+  setIfAbsent(key: string, value: unknown): Promise<boolean>;
+  getMany<T>(keys: string[]): Promise<(T | null)[]>;
   list(prefix: string): Promise<string[]>;
 }
 
@@ -55,6 +58,17 @@ export class RedisKV implements KV {
   async setOnce(key: string, ttlSeconds: number) {
     return (await this.cmd('SET', key, '1', 'NX', 'EX', ttlSeconds)) === 'OK';
   }
+  async setIfAbsent(key: string, value: unknown) {
+    return (await this.cmd('SET', key, JSON.stringify(value), 'NX')) === 'OK';
+  }
+  async getMany<T>(keys: string[]) {
+    const out: (T | null)[] = [];
+    for (let i = 0; i < keys.length; i += 100) {
+      const vals: (string | null)[] = await this.cmd('MGET', ...keys.slice(i, i + 100));
+      out.push(...vals.map(v => (v == null ? null : (JSON.parse(v) as T))));
+    }
+    return out;
+  }
   async list(prefix: string) {
     const keys: string[] = [];
     let cursor = '0';
@@ -73,6 +87,8 @@ export class MemoryKV implements KV {
   async get<T>(key: string) { return (this.data.has(key) ? structuredClone(this.data.get(key)) : null) as T | null; }
   async set(key: string, value: unknown) { this.data.set(key, structuredClone(value)); }
   async setOnce(key: string) { if (this.data.has(key)) return false; this.data.set(key, 1); return true; }
+  async setIfAbsent(key: string, value: unknown) { if (this.data.has(key)) return false; this.data.set(key, structuredClone(value)); return true; }
+  async getMany<T>(keys: string[]) { return Promise.all(keys.map(k => this.get<T>(k))); }
   async list(prefix: string) { return [...this.data.keys()].filter(k => k.startsWith(prefix)); }
 }
 
@@ -95,12 +111,19 @@ export class Users {
   }
   async all(): Promise<User[]> {
     const keys = await this.kv.list('user:');
-    const rows = await Promise.all(keys.map(k => this.kv.get<User>(k)));
-    return rows.filter(Boolean) as User[];
+    return (await this.kv.getMany<User>(keys)).filter(Boolean) as User[];
   }
   /** Один канал — один подарок. */
   async channelOwner(channel: string) { return this.kv.get<number>(`channel:${channel.toLowerCase()}`); }
-  async claimChannel(channel: string, userId: number) { await this.kv.set(`channel:${channel.toLowerCase()}`, userId); }
+  /** Атомарно: true — канал наш (свободен или уже за этим же человеком). */
+  async claimChannel(channel: string, userId: number): Promise<boolean> {
+    const key = `channel:${channel.toLowerCase()}`;
+    if (await this.kv.setIfAbsent(key, userId)) return true;
+    return (await this.kv.get<number>(key)) === userId;
+  }
+  /** Оплата хранится отдельным ключом, чтобы одновременные обновления профиля её не затёрли. */
+  savePayment(userId: number, chargeId: string, stars: number) { return this.kv.set(`pay:${userId}`, {chargeId, stars}); }
+  getPayment(userId: number) { return this.kv.get<{chargeId: string; stars: number}>(`pay:${userId}`); }
   /** Защита от повторной доставки одного и того же апдейта (хранится 3 дня). */
   async seenUpdate(updateId: number): Promise<boolean> {
     return !(await this.kv.setOnce(`upd:${updateId}`, 3 * 24 * 3600));

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import {writeFileSync, readFileSync} from 'node:fs';
+import {readFileSync} from 'node:fs';
 process.env.CHANNEL_ID='-1003772984999'; process.env.ADMIN_ID='6713072327'; process.env.CHANNEL_INVITE_LINK='https://t.me/+abc';
 const {MemoryKV, Users} = await import('../server/store.js');
 const bot = await import('../server/bot.js');
@@ -10,13 +10,13 @@ const tg={
   async call(m,b){ log.push([m,b]);
     if(m==='getChatMember') return {status: members.has(b.user_id)?'member':'left'};
     if(m==='getChat') { if(b.chat_id==='@bigchan') return {id:-1,type:'channel',title:'Большой'}; if(b.chat_id==='@small') return {id:-2,type:'channel',title:'Мал'}; throw new Error('nf'); }
-    if(m==='getChatMemberCount') return b.chat_id===-1?250:12;
+    if(m==='getChatMemberCount') return b.chat_id==='@bigchan'?250:12;
     if(m==='sendMediaGroup') return b.media.map((_,i)=>({document:{file_id:'C'+i}}));
     return {}; },
   async upload(m,f,files){ log.push([m,f,files.map(x=>x.filename)]);
     if(m==='sendMediaGroup') return files.map((_,i)=>({document:{file_id:'F'+i}}));
     if(m==='sendPhoto') return {photo:[{file_id:'P'}]}; return {}; },
-  async download(){ return new Uint8Array(readFileSync('/home/claude/hw/me.jpg')); },
+  async download(){ return new Uint8Array(readFileSync(new URL('./fixtures/face.jpg', import.meta.url))); },
 };
 const users=new Users(new MemoryKV());
 const d={tg,users,fetchPost:async(c,id)=> c==='bigchan'&&id==='77' ? '<div class="tgme_widget_message_text">@SantaHalloween2026bot</div>' : '<div class="tgme_widget_message_error">x</div>'};
@@ -73,5 +73,28 @@ process.env.DEADLINE='2020-01-01T00:00:00Z'; log.length=0; await bot.handleUpdat
 log.length=0; await bot.handleUpdate(d,{update_id:++uid,pre_checkout_query:{id:'pc2',invoice_payload:'kit:2'}}); assert.equal(log[0][1].ok,false);
 delete process.env.DEADLINE;
 // 12. обложка
-writeFileSync('/home/claude/hw/node_poster.jpg', await makePoster(new Uint8Array(readFileSync('/home/claude/hw/me.jpg'))));
+const out = await makePoster(new Uint8Array(readFileSync(new URL('./fixtures/face.jpg', import.meta.url)))); assert.ok(out.length > 100000, 'poster built');
+
+// 13. повторная оплата невозможна: кнопка «Купить» у оплатившего → набор без счёта
+log.length=0; await bot.handleUpdate(d,cb(2,'path_stars'));
+assert.ok(!log.some(x=>x[0]==='sendInvoice'), 'no second invoice'); assert.ok(log.some(x=>x[0]==='sendMediaGroup'));
+// 14. оплатил, доставка упала → админ предупреждён, потом «Забрать набор» выдаёт без оплаты и без проверки подписки
+members.delete(3);
+const origCall=tg.call; let fail=true;
+tg.call=async(m,b)=>{ if(fail&&m==='sendMediaGroup') throw new Error('tg down'); return origCall(m,b); };
+log.length=0; await bot.handleUpdate(d,msg(3,undefined,{successful_payment:{telegram_payment_charge_id:'ch3',total_amount:499}}));
+assert.ok(texts().some(t=>t.startsWith('🚨 Оплата есть')), 'admin alerted');
+fail=false; log.length=0; await bot.handleUpdate(d,cb(3,'kit'));
+assert.ok(log.some(x=>x[0]==='sendMediaGroup'), 'redelivered'); assert.ok(!texts().some(t=>/Сначала вступите/.test(t)));
+assert.equal((await users.getPayment(3)).chargeId,'ch3');
+// 15. /start kit из приветствия после заявки
+members.add(4); log.length=0; await bot.handleUpdate(d,msg(4,'/start kit')); assert.match(texts()[0],/Как забрать набор/);
+// 16. гонка за один канал: второй человек с той же ссылкой на пост не получает набор
+await users.patch(7,{state:'await_post',channel:'bigchan'}); log.length=0;
+await bot.handleUpdate(d,msg(7,'https://t.me/bigchan/77')); assert.match(texts()[0],/уже забирали/);
+// 17. приветствие после заявки — кнопка-ссылка на /start kit
+log.length=0; await bot.handleUpdate(d,{update_id:++uid,chat_join_request:{chat:{id:-1003772984999},from:U(8),user_chat_id:8}});
+const w=log.find(x=>x[0]==='sendPhoto'); assert.match(JSON.stringify(w[1].reply_markup),/start=kit/);
+// 18. cron без секрета закрыт
+const {GET}=await import('../api/recheck.js'); delete process.env.CRON_SECRET; assert.equal((await GET(new Request('http://x/api/recheck'))).status,403);
 console.log('ALL TESTS PASSED');

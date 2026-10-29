@@ -14,7 +14,14 @@ export const cfg = {
   minSubs: () => Number(env('MIN_SUBS', '100')),
   priceStars: () => Number(env('PRICE_STARS', '499')),
   // Конец раздачи: 8 ноября 23:59 по Мадриду (UTC+1 зимой)
-  deadline: () => new Date(env('DEADLINE', '2026-11-08T23:59:00+01:00')),
+  deadline: () => {
+    const d = new Date(env('DEADLINE', '2026-11-08T23:59:00+01:00'));
+    if (Number.isNaN(d.getTime())) {
+      console.error('DEADLINE задан неверно, использую 2026-11-08T23:59:00+01:00');
+      return new Date('2026-11-08T23:59:00+01:00');
+    }
+    return d;
+  },
 };
 
 export const isOver = (now = new Date()) => now > cfg.deadline();

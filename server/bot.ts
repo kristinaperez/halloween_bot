@@ -73,9 +73,12 @@ async function isMember(d: Deps, userId: number) {
   }
 }
 
-async function sendWelcome(d: Deps, chat: number) {
+async function sendWelcome(d: Deps, chat: number, viaLink = false) {
   if (isOver()) return send(d, chat, over());
-  const markup = kb([[{text: '🎁 Забрать набор', data: 'kit'}]]);
+  // После заявки в канал человек ещё не нажимал «Старт» — кнопка ведёт в бот через /start kit
+  const markup = viaLink
+    ? kb([[{text: '🎁 Забрать набор', url: `https://t.me/${cfg.botUsername()}?start=kit`}]])
+    : kb([[{text: '🎁 Забрать набор', data: 'kit'}]]);
   try {
     const cached = await d.users.getCache<string>('welcome');
     if (cached) return await d.tg.call('sendPhoto', {chat_id: chat, photo: cached, caption: welcome(), parse_mode: 'HTML', reply_markup: markup});
@@ -127,8 +130,9 @@ async function handleChannel(d: Deps, uid: number, text: string) {
   catch { return send(d, uid, 'Не нашла такой канал. Проверьте имя — оно после t.me/'); }
   if (chat.type !== 'channel') return send(d, uid, 'Это не канал (похоже на группу или аккаунт). Нужна ссылка именно на канал.');
 
-  let subs = 0;
-  try { subs = await d.tg.call('getChatMemberCount', {chat_id: chat.id}); } catch { /* 0 */ }
+  let subs: number;
+  try { subs = await d.tg.call('getChatMemberCount', {chat_id: `@${name}`}); }
+  catch { return send(d, uid, 'Не смогла посчитать подписчиков канала 😔 Попробуйте прислать ссылку ещё раз через минуту.'); }
   if (subs < cfg.minSubs()) {
     await d.users.patch(uid, {state: null});
     return send(d, uid,
@@ -176,8 +180,11 @@ async function handlePostLink(d: Deps, uid: number, text: string) {
     return send(d, uid, `Вижу пост, но в нём нет @${cfg.botUsername()}. Опубликуйте пост вместе с текстом, который я прислала, и пришлите ссылку ещё раз.`);
   }
   const link = `https://t.me/${channel}/${msgId}`;
+  if (!(await d.users.claimChannel(channel, uid))) {
+    await d.users.patch(uid, {state: null});
+    return send(d, uid, 'С этого канала набор уже забирали 🙂 Один канал — один подарок.');
+  }
   await d.users.patch(uid, {postLink: link, path: 'repost'});
-  await d.users.claimChannel(channel, uid);
   await send(d, uid, '✅ Пост на месте, спасибо, что делитесь! 🧡');
   await deliverKit(d, uid);
   await notifyAdmin(d, `📢 Репост: ${who(u)} — канал @${esc(channel)} (${u.channelSubs} подп.)\n${link}`);
@@ -202,10 +209,31 @@ async function onJoinRequest(d: Deps, req: any) {
   // Писать можно, пока заявка не обработана: сначала пишем, потом одобряем.
   try {
     await send(d, req.user_chat_id, '👻 Заявка принята — добро пожаловать в канал «Кристина о нейронках»!');
-    await sendWelcome(d, req.user_chat_id);
+    await sendWelcome(d, req.user_chat_id, true);
   } catch (e) { console.warn('join DM failed', e); }
   try { await d.tg.call('approveChatJoinRequest', {chat_id: req.chat.id, user_id: req.from.id}); }
-  catch (e) { console.error('approve failed', e); }
+  catch (e) {
+    console.error('approve failed', e);
+    await notifyAdmin(d, `⚠️ Не получилось одобрить заявку ${who(req.from)}: ${esc(String(e))}\nПроверьте, что у бота есть право приглашать пользователей.`);
+  }
+}
+
+
+async function kitAction(d: Deps, uid: number) {
+  const paid = await d.users.get(uid);
+  if (paid?.deliveredAt || (paid?.path === 'stars' && paid.chargeId)) {
+    await send(d, uid, 'Набор у вас уже есть — присылаю ещё раз 😉');
+    return deliverKit(d, uid);
+  }
+  if (!(await isMember(d, uid))) {
+    return send(d, uid, 'Сначала вступите в канал «Кристина о нейронках» — заявки принимаю моментально ⚡\nПотом нажмите «Проверить».',
+      {reply_markup: kb([[{text: '📢 Вступить в канал', url: cfg.inviteLink()}], [{text: '✅ Проверить', data: 'kit'}]])});
+  }
+  return send(d, uid,
+    'Вы в канале — отлично! 🎉\n\nКак забрать набор:\n' +
+    `📢 <b>Есть свой публичный канал от ${cfg.minSubs()} подписчиков?</b> Опубликуйте у себя пост с подарком — набор бесплатно. Я даже соберу обложку с вашим фото.\n` +
+    `⭐ <b>Канала нет?</b> Набор можно забрать за ${cfg.priceStars()} звёзд.`,
+    {reply_markup: kb([[{text: `📢 У меня канал ${cfg.minSubs()}+`, data: 'path_repost'}], starsBtn()])});
 }
 
 async function onCallback(d: Deps, q: any) {
@@ -215,27 +243,19 @@ async function onCallback(d: Deps, q: any) {
   if (isOver()) return send(d, uid, over());
 
   switch (q.data) {
-    case 'kit': {
-      if (!(await isMember(d, uid))) {
-        return send(d, uid, 'Сначала вступите в канал «Кристина о нейронках» — заявки принимаю моментально ⚡\nПотом нажмите «Проверить».',
-          {reply_markup: kb([[{text: '📢 Вступить в канал', url: cfg.inviteLink()}], [{text: '✅ Проверить', data: 'kit'}]])});
-      }
-      const u = await d.users.get(uid);
-      if (u?.deliveredAt) {
-        await send(d, uid, 'Набор у вас уже есть — присылаю ещё раз 😉');
-        return deliverKit(d, uid);
-      }
-      return send(d, uid,
-        'Вы в канале — отлично! 🎉\n\nКак забрать набор:\n' +
-        `📢 <b>Есть свой публичный канал от ${cfg.minSubs()} подписчиков?</b> Опубликуйте у себя пост с подарком — набор бесплатно. Я даже соберу обложку с вашим фото.\n` +
-        `⭐ <b>Канала нет?</b> Набор можно забрать за ${cfg.priceStars()} звёзд.`,
-        {reply_markup: kb([[{text: `📢 У меня канал ${cfg.minSubs()}+`, data: 'path_repost'}], starsBtn()])});
-    }
+    case 'kit':
+      return kitAction(d, uid);
     case 'path_repost':
       await d.users.patch(uid, {state: 'await_channel'});
       return send(d, uid, 'Пришлите ссылку на ваш канал или его @имя.\nНапример: <code>@my_channel</code> или <code>https://t.me/my_channel</code>\n\nКанал должен быть публичным — так я смогу проверить пост.');
-    case 'path_stars':
+    case 'path_stars': {
+      const u = await d.users.get(uid);
+      if (u?.deliveredAt || (u?.path === 'stars' && u.chargeId)) {
+        await send(d, uid, 'Набор у вас уже есть — платить второй раз не нужно 😉');
+        return deliverKit(d, uid);
+      }
       return sendInvoice(d, uid);
+    }
     case 'photo_kristina': {
       const u = await d.users.get(uid);
       if (u?.state !== 'await_photo') return send(d, uid, 'Начнём сначала: нажмите /start');
@@ -254,9 +274,17 @@ async function onPaid(d: Deps, msg: any) {
   const p = msg.successful_payment;
   const uid = msg.from.id;
   await d.users.upsert(msg.from);
+  await d.users.savePayment(uid, p.telegram_payment_charge_id, p.total_amount);
   await d.users.patch(uid, {path: 'stars', chargeId: p.telegram_payment_charge_id, stars: p.total_amount});
   await send(d, uid, '⭐ Оплата прошла, спасибо!');
-  await deliverKit(d, uid);
+  try {
+    await deliverKit(d, uid);
+  } catch (e) {
+    console.error('deliver after payment failed', e);
+    await send(d, uid, 'Оплата прошла, но файлы не отправились из-за сбоя Telegram 😔 Нажмите /start → «Забрать набор» — пришлю без повторной оплаты.').catch(() => {});
+    await notifyAdmin(d, `🚨 Оплата есть, набор не доставлен: ${who(msg.from)}, id ${uid}, charge_id <code>${esc(p.telegram_payment_charge_id)}</code>`);
+    return;
+  }
   await notifyAdmin(d, `⭐ Покупка за ${p.total_amount} звёзд: ${who(msg.from)}\ncharge_id: <code>${esc(p.telegram_payment_charge_id)}</code>`);
 }
 
@@ -282,6 +310,8 @@ async function onAdmin(d: Deps, uid: number, cmd: string, arg?: string) {
   }
   if (cmd === '/refund') {
     const target = all.find(u => String(u.id) === arg);
+    const pay = target ? await d.users.getPayment(target.id) : null;
+    if (target && pay) target.chargeId = pay.chargeId;
     if (!target?.chargeId) { await send(d, uid, 'Использование: /refund <user_id> (у пользователя должна быть оплата)'); return true; }
     try {
       await d.tg.call('refundStarPayment', {user_id: target.id, telegram_payment_charge_id: target.chargeId});
@@ -313,8 +343,12 @@ async function onMessage(d: Deps, msg: any) {
     if (c === '/paysupport') {
       return send(d, uid, `💬 Поддержка по оплатам: напишите ${cfg.contact()}.\nУкажите, когда платили, — платёж я найду сама.`);
     }
-    // /start и всё остальное
+    // /start kit — пришли по кнопке из приветствия после заявки в канал
     await d.users.patch(uid, {state: null});
+    if (c === '/start' && arg === 'kit') {
+      if (isOver()) return send(d, uid, over());
+      return kitAction(d, uid);
+    }
     return sendWelcome(d, uid);
   }
 
@@ -330,7 +364,8 @@ async function onMessage(d: Deps, msg: any) {
       return await sendReadyPost(d, uid, data);
     } catch (e) {
       console.error('poster failed', e);
-      return send(d, uid, 'Не получилось открыть это фото 😔 Пришлите другое — обычным фото, не файлом.');
+      return send(d, uid, 'Не получилось собрать обложку с этим фото 😔 Пришлите другое — обычным фото, не файлом. Или оставьте на обложке Кристину.',
+        {reply_markup: kb([kristinaBtn()])});
     }
   }
 
@@ -365,7 +400,7 @@ export async function fetchPost(channel: string, id: string): Promise<string | n
   } catch { return null; }
 }
 
-/** Раз в час: посты, которым больше суток, проверяем повторно. */
+/** Раз в день (Vercel Cron): посты, которым больше суток, проверяем повторно. */
 export async function recheckPosts(d: Deps) {
   const day = 24 * 3600 * 1000;
   for (const u of await d.users.all()) {
