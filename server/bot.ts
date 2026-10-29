@@ -219,9 +219,13 @@ async function onJoinRequest(d: Deps, req: any) {
 }
 
 
+async function hasKit(d: Deps, uid: number) {
+  const u = await d.users.get(uid);
+  return !!(u?.deliveredAt || (u?.path === 'stars' && u.chargeId) || (await d.users.getPayment(uid)));
+}
+
 async function kitAction(d: Deps, uid: number) {
-  const paid = await d.users.get(uid);
-  if (paid?.deliveredAt || (paid?.path === 'stars' && paid.chargeId)) {
+  if (await hasKit(d, uid)) {
     await send(d, uid, 'Набор у вас уже есть — присылаю ещё раз 😉');
     return deliverKit(d, uid);
   }
@@ -240,7 +244,8 @@ async function onCallback(d: Deps, q: any) {
   await d.tg.call('answerCallbackQuery', {callback_query_id: q.id}).catch(() => {});
   const uid = q.from.id;
   await d.users.upsert(q.from);
-  if (isOver()) return send(d, uid, over());
+  // после дедлайна оплатившие всё равно могут забрать набор
+  if (isOver()) return q.data === 'kit' && (await hasKit(d, uid)) ? kitAction(d, uid) : send(d, uid, over());
 
   switch (q.data) {
     case 'kit':
@@ -249,8 +254,7 @@ async function onCallback(d: Deps, q: any) {
       await d.users.patch(uid, {state: 'await_channel'});
       return send(d, uid, 'Пришлите ссылку на ваш канал или его @имя.\nНапример: <code>@my_channel</code> или <code>https://t.me/my_channel</code>\n\nКанал должен быть публичным — так я смогу проверить пост.');
     case 'path_stars': {
-      const u = await d.users.get(uid);
-      if (u?.deliveredAt || (u?.path === 'stars' && u.chargeId)) {
+      if (await hasKit(d, uid)) {
         await send(d, uid, 'Набор у вас уже есть — платить второй раз не нужно 😉');
         return deliverKit(d, uid);
       }
@@ -346,7 +350,7 @@ async function onMessage(d: Deps, msg: any) {
     // /start kit — пришли по кнопке из приветствия после заявки в канал
     await d.users.patch(uid, {state: null});
     if (c === '/start' && arg === 'kit') {
-      if (isOver()) return send(d, uid, over());
+      if (isOver() && !(await hasKit(d, uid))) return send(d, uid, over());
       return kitAction(d, uid);
     }
     return sendWelcome(d, uid);

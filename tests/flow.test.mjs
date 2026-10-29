@@ -69,7 +69,7 @@ log.length=0; await bot.handleUpdate(d,msg(6713072327,'/stats')); assert.match(t
 log.length=0; await bot.handleUpdate(d,msg(6713072327,'/export')); assert.equal(log[0][0],'sendDocument');
 log.length=0; await bot.handleUpdate(d,msg(1,'/stats')); assert.match(log[0]?.[0]??'', /sendPhoto|sendMessage/); // не админ → приветствие
 // 11. дедлайн
-process.env.DEADLINE='2020-01-01T00:00:00Z'; log.length=0; await bot.handleUpdate(d,cb(1,'kit')); assert.match(texts()[0],/завершилась/);
+process.env.DEADLINE='2020-01-01T00:00:00Z'; log.length=0; await bot.handleUpdate(d,cb(9,'kit')); assert.match(texts()[0],/завершилась/);
 log.length=0; await bot.handleUpdate(d,{update_id:++uid,pre_checkout_query:{id:'pc2',invoice_payload:'kit:2'}}); assert.equal(log[0][1].ok,false);
 delete process.env.DEADLINE;
 // 12. обложка
@@ -97,4 +97,7 @@ log.length=0; await bot.handleUpdate(d,{update_id:++uid,chat_join_request:{chat:
 const w=log.find(x=>x[0]==='sendPhoto'); assert.match(JSON.stringify(w[1].reply_markup),/start=kit/);
 // 18. cron без секрета закрыт
 const {GET}=await import('../api/recheck.js'); delete process.env.CRON_SECRET; assert.equal((await GET(new Request('http://x/api/recheck'))).status,403);
+// 19. после дедлайна оплативший всё равно получает набор
+process.env.DEADLINE='2020-01-01T00:00:00Z'; log.length=0; await bot.handleUpdate(d,cb(3,'kit'));
+assert.ok(log.some(x=>x[0]==='sendMediaGroup'), 'paid user after deadline'); delete process.env.DEADLINE;
 console.log('ALL TESTS PASSED');
