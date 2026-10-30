@@ -33,11 +33,12 @@ export const preamble = () =>
 const welcome = () =>
   '🎃 <b>Привет! Это хэллоуинский бот Кристины.</b>\n\n' +
   '<b>Психолог, коуч — сделайте себе ИИ-помощника сами.</b>\nВ наборе:\n' +
-  '🗺 Карта бесплатных курсов Академии Claude\n' +
-  '📂 Шаблон CLAUDE.md для веб-проекта\n' +
-  '🧪 Шаблон первого скилла\n' +
-  '⚡ Шпаргалка команд Claude Code\n' +
-  '🎁 И бонус — 10 топовых скиллов для Claude Code\n\n' +
+  '🗺 Бесплатные курсы от создателей Claude: с чего начать и в каком порядке\n' +
+  '📂 Памятка для ИИ: чтобы он с первого раза понимал ваш сайт или бота\n' +
+  '🧪 Как один раз научить ИИ вашей задаче — и больше не объяснять\n' +
+  '⚡ Шпаргалка: главные команды, чтобы управлять ИИ-помощником\n' +
+  '🎁 И бонус — 10 топовых навыков для ИИ: тексты, маркетинг, проверка идей\n\n' +
+  'Всё — для Claude Code: так вы соберёте себе бота или сайт без программиста.\n\n' +
   `Раздача до ${deadlineStr()}. Жмите кнопку 👇`;
 
 const over = () =>
@@ -80,11 +81,11 @@ async function sendWelcome(d: Deps, chat: number, viaLink = false) {
     ? kb([[{text: '🎁 Забрать набор', url: `https://t.me/${cfg.botUsername()}?start=kit`}]])
     : kb([[{text: '🎁 Забрать набор', data: 'kit'}]]);
   try {
-    const cached = await d.users.getCache<string>('welcome-v2-psy');
+    const cached = await d.users.getCache<string>('welcome-v3-coach');
     if (cached) return await d.tg.call('sendPhoto', {chat_id: chat, photo: cached, caption: welcome(), parse_mode: 'HTML', reply_markup: markup});
     const r = await d.tg.upload('sendPhoto', {chat_id: String(chat), caption: welcome(), parse_mode: 'HTML', reply_markup: markup},
       [{name: 'photo', data: new Uint8Array(await readFile(asset('assets/welcome.png'))), filename: 'welcome.png', type: 'image/png'}]);
-    await d.users.setCache('welcome-v2-psy', r.photo.at(-1).file_id);
+    await d.users.setCache('welcome-v3-coach', r.photo.at(-1).file_id);
   } catch (e) {
     console.warn('welcome photo failed', e);
     await send(d, chat, welcome(), {reply_markup: markup});
@@ -195,7 +196,7 @@ async function sendInvoice(d: Deps, uid: number) {
   await d.tg.call('sendInvoice', {
     chat_id: uid,
     title: 'ИИ-помощник своими руками',
-    description: 'Карта курсов Академии Claude, шаблоны CLAUDE.md и первого скилла, шпаргалка Claude Code + бонус: 10 топовых скиллов. 5 PDF прямо в бот.',
+    description: 'Бесплатные курсы от создателей Claude, памятка и шаблон навыка для ИИ, шпаргалка команд + 10 топовых навыков. Чтобы собрать себе бота или сайт в Claude Code без программиста. 5 PDF прямо в бот.',
     payload: `kit:${uid}`,
     currency: 'XTR',
     prices: [{label: 'Набор', amount: cfg.priceStars()}],
