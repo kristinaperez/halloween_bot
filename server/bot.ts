@@ -26,13 +26,13 @@ const kristinaBtn = () => [{text: '🎃 Оставить фото Кристин
 export const preamble = () =>
   'Друзья, добрый день!\n' +
   'Я стараюсь развиваться, чтобы делать вашу жизнь легче и интереснее.\n' +
-  'Поэтому забираю подарок от Кристины — стартовый набор вайб-кодера — и делюсь им с вами.\n' +
+  'Поэтому забираю подарок от Кристины — набор, чтобы сделать себе ИИ-помощника самостоятельно, — и делюсь им с вами.\n' +
   'С праздником! 🎃\n\n' +
   `Забрать набор: @${cfg.botUsername()}`;
 
 const welcome = () =>
   '🎃 <b>Привет! Это хэллоуинский бот Кристины.</b>\n\n' +
-  'Здесь живёт <b>Стартовый набор вайб-кодера</b>:\n' +
+  '<b>Психолог, коуч — сделайте себе ИИ-помощника сами.</b>\nВ наборе:\n' +
   '🗺 Карта бесплатных курсов Академии Claude\n' +
   '📂 Шаблон CLAUDE.md для веб-проекта\n' +
   '🧪 Шаблон первого скилла\n' +
@@ -80,11 +80,11 @@ async function sendWelcome(d: Deps, chat: number, viaLink = false) {
     ? kb([[{text: '🎁 Забрать набор', url: `https://t.me/${cfg.botUsername()}?start=kit`}]])
     : kb([[{text: '🎁 Забрать набор', data: 'kit'}]]);
   try {
-    const cached = await d.users.getCache<string>('welcome');
+    const cached = await d.users.getCache<string>('welcome-v2-psy');
     if (cached) return await d.tg.call('sendPhoto', {chat_id: chat, photo: cached, caption: welcome(), parse_mode: 'HTML', reply_markup: markup});
     const r = await d.tg.upload('sendPhoto', {chat_id: String(chat), caption: welcome(), parse_mode: 'HTML', reply_markup: markup},
       [{name: 'photo', data: new Uint8Array(await readFile(asset('assets/welcome.png'))), filename: 'welcome.png', type: 'image/png'}]);
-    await d.users.setCache('welcome', r.photo.at(-1).file_id);
+    await d.users.setCache('welcome-v2-psy', r.photo.at(-1).file_id);
   } catch (e) {
     console.warn('welcome photo failed', e);
     await send(d, chat, welcome(), {reply_markup: markup});
@@ -93,7 +93,7 @@ async function sendWelcome(d: Deps, chat: number, viaLink = false) {
 
 // ---------- выдача набора ----------
 export async function deliverKit(d: Deps, userId: number) {
-  await send(d, userId, '🎁 <b>Ваш Стартовый набор вайб-кодера!</b>');
+  await send(d, userId, '🎁 <b>Ваш набор «ИИ-помощник своими руками»!</b>');
   const cached = await d.users.getCache<string[]>('kit');
   const files = readdirSync(asset('assets/kit')).filter(f => f.endsWith('.pdf')).sort();
   const caption = (f: string) => (f.includes('Бонус') ? 'И ещё бонус от меня 🎁' : undefined);
@@ -194,11 +194,11 @@ async function handlePostLink(d: Deps, uid: number, text: string) {
 async function sendInvoice(d: Deps, uid: number) {
   await d.tg.call('sendInvoice', {
     chat_id: uid,
-    title: 'Стартовый набор вайб-кодера',
+    title: 'ИИ-помощник своими руками',
     description: 'Карта курсов Академии Claude, шаблоны CLAUDE.md и первого скилла, шпаргалка Claude Code + бонус: 10 топовых скиллов. 5 PDF прямо в бот.',
     payload: `kit:${uid}`,
     currency: 'XTR',
-    prices: [{label: 'Стартовый набор', amount: cfg.priceStars()}],
+    prices: [{label: 'Набор', amount: cfg.priceStars()}],
   });
 }
 
@@ -340,7 +340,7 @@ async function onMessage(d: Deps, msg: any) {
     if (await onAdmin(d, uid, c, arg)) return;
     if (c === '/terms') {
       return send(d, uid,
-        `📄 Условия\n\n«Стартовый набор вайб-кодера» — 5 PDF-файлов. Оплата ${cfg.priceStars()} ⭐ Telegram Stars.\n` +
+        `📄 Условия\n\n«ИИ-помощник своими руками» — 5 PDF-файлов. Оплата ${cfg.priceStars()} ⭐ Telegram Stars.\n` +
         'Файлы приходят сюда, в бот, сразу после оплаты.\nЕсли файлы не пришли или что-то пошло не так — напишите в /paysupport, разберёмся или вернём звёзды.\n' +
         'Материалы — для личного использования.');
     }
