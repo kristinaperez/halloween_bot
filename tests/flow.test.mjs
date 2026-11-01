@@ -100,4 +100,38 @@ const {GET}=await import('../api/recheck.js'); delete process.env.CRON_SECRET; a
 // 19. после дедлайна оплативший всё равно получает набор
 process.env.DEADLINE='2020-01-01T00:00:00Z'; log.length=0; await bot.handleUpdate(d,cb(3,'kit'));
 assert.ok(log.some(x=>x[0]==='sendMediaGroup'), 'paid user after deadline'); delete process.env.DEADLINE;
+// 20. рефералка: рассылка, 3 новых друга → набор; повторы, сам себя и старые пользователи не считаются
+process.env.REF_DEADLINE='2099-01-01T05:00:00+03:00'; process.env.DEADLINE='2099-01-02T00:00:00Z';
+await users.upsert(U(50)); await users.upsert(U(60));
+log.length=0; await bot.handleUpdate(d,msg(6713072327,'/ref_preview'));
+assert.match(texts()[0],/start=ref_6713072327/); assert.match(texts()[0],/05:00 по Москве/);
+log.length=0; await bot.handleUpdate(d,msg(6713072327,'/ref_send'));
+const sentTo=log.filter(x=>x[0]==='sendMessage'&&/хэллоуинская сделка/.test(x[1].text)).map(x=>x[1].chat_id);
+assert.ok(sentTo.includes(50)&&sentTo.includes(60), 'broadcast to users without kit');
+assert.ok(!sentTo.includes(1)&&!sentTo.includes(2)&&!sentTo.includes(6713072327), 'skip kit owners and admin');
+log.length=0; await bot.handleUpdate(d,msg(6713072327,'/ref_send'));
+assert.ok(!log.some(x=>x[0]==='sendMessage'&&/хэллоуинская сделка/.test(x[1].text)), 'no double broadcast');
+await bot.handleUpdate(d,msg(50,'/start ref_50'));                 // сам себя
+await bot.handleUpdate(d,msg(60,'/start ref_50'));                 // старый пользователь
+assert.equal(await users.refCount(50),0);
+log.length=0; await bot.handleUpdate(d,msg(101,'/start ref_50'));
+assert.ok(texts().some(t=>/первая/.test(t)), 'referrer notified 1');
+assert.ok(log.some(x=>x[0]==='sendPhoto'||x[0]==='sendMessage'&&x[1].chat_id===101), 'friend gets welcome');
+await bot.handleUpdate(d,msg(101,'/start ref_50'));                 // повтор того же друга
+assert.equal(await users.refCount(50),1);
+await bot.handleUpdate(d,msg(102,'/start ref_50')); assert.equal(await users.refCount(50),2);
+log.length=0; await bot.handleUpdate(d,msg(103,'/start ref_50'));
+assert.ok(log.some(x=>x[0]==='sendMediaGroup'&&x[1].chat_id===50), 'kit delivered at 3');
+assert.ok(texts().some(t=>t.startsWith('👯 Рефералка')), 'admin notified');
+const r50=await users.get(50); assert.equal(r50.path,'referral'); assert.ok(r50.deliveredAt); assert.equal((await users.get(103)).referredBy,50);
+log.length=0; await bot.handleUpdate(d,msg(104,'/start ref_50'));   // 4-й — набор второй раз не шлём
+assert.ok(!log.some(x=>x[0]==='sendMediaGroup'&&x[1].chat_id===50));
+log.length=0; await bot.handleUpdate(d,cb(60,'ref_status')); assert.match(texts()[0],/0 из 3/);
+log.length=0; await bot.handleUpdate(d,msg(6713072327,'/stats')); assert.match(texts()[0],/Пришли по ссылкам друзей: 4, забрали за 3 друзей: 1/);
+// окошко закрыто → не считается
+process.env.REF_DEADLINE='2020-01-01T00:00:00Z';
+await bot.handleUpdate(d,msg(105,'/start ref_60')); assert.equal(await users.refCount(60),0);
+log.length=0; await bot.handleUpdate(d,cb(60,'ref_status')); assert.match(texts()[0],/Окошко закрылось/);
+log.length=0; await bot.handleUpdate(d,cb(4,'kit')); assert.ok(!JSON.stringify(log).includes('ref_status'), 'no ref button after window');
+delete process.env.REF_DEADLINE; delete process.env.DEADLINE;
 console.log('ALL TESTS PASSED');

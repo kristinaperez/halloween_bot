@@ -22,7 +22,21 @@ export const cfg = {
     }
     return d;
   },
+  // Реферальное окошко: до 2 ноября 05:00 по Москве
+  refDeadline: () => {
+    const d = new Date(env('REF_DEADLINE', '2026-11-02T05:00:00+03:00'));
+    return Number.isNaN(d.getTime()) ? new Date('2026-11-02T05:00:00+03:00') : d;
+  },
+  refGoal: () => Number(env('REF_GOAL', '3')),
 };
+
+export const refOpen = (now = new Date()) => now <= cfg.refDeadline() && !isOver(now);
+
+/** «05:00 по Москве» */
+export function refDeadlineStr(): string {
+  const f = new Intl.DateTimeFormat('ru-RU', {timeZone: 'Europe/Moscow', hour: '2-digit', minute: '2-digit'});
+  return `${f.format(cfg.refDeadline())} по Москве`;
+}
 
 export const isOver = (now = new Date()) => now > cfg.deadline();
 
