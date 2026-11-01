@@ -8,11 +8,14 @@ export interface User {
   channelTitle?: string;
   channelSubs?: number;
   postLink?: string;
-  path?: 'repost' | 'stars' | 'refunded';
+  path?: 'repost' | 'stars' | 'refunded' | 'referral';
   chargeId?: string;
   stars?: number;
   deliveredAt?: string;
   recheckedAt?: string;
+  /** Кто привёл (id), сколько друзей привёл сам. */
+  referredBy?: number;
+  refCount?: number;
 }
 
 export interface KV {
@@ -24,6 +27,8 @@ export interface KV {
   setIfAbsent(key: string, value: unknown): Promise<boolean>;
   getMany<T>(keys: string[]): Promise<(T | null)[]>;
   list(prefix: string): Promise<string[]>;
+  /** Атомарно +1, возвращает новое значение. */
+  incr(key: string): Promise<number>;
 }
 
 /**
@@ -69,6 +74,7 @@ export class RedisKV implements KV {
     }
     return out;
   }
+  async incr(key: string) { return Number(await this.cmd('INCR', key)); }
   async list(prefix: string) {
     const keys: string[] = [];
     let cursor = '0';
@@ -90,6 +96,7 @@ export class MemoryKV implements KV {
   async setIfAbsent(key: string, value: unknown) { if (this.data.has(key)) return false; this.data.set(key, structuredClone(value)); return true; }
   async getMany<T>(keys: string[]) { return Promise.all(keys.map(k => this.get<T>(k))); }
   async list(prefix: string) { return [...this.data.keys()].filter(k => k.startsWith(prefix)); }
+  async incr(key: string) { const v = Number(this.data.get(key) ?? 0) + 1; this.data.set(key, v); return v; }
 }
 
 export class Users {
@@ -128,6 +135,13 @@ export class Users {
   async seenUpdate(updateId: number): Promise<boolean> {
     return !(await this.kv.setOnce(`upd:${updateId}`, 3 * 24 * 3600));
   }
+  /** Друг засчитывается только одному пригласившему. true — засчитали сейчас. */
+  claimReferral(friendId: number, referrerId: number) { return this.kv.setIfAbsent(`ref:by:${friendId}`, referrerId); }
+  /** +1 друг у пригласившего, возвращает новый счёт. */
+  addReferral(referrerId: number) { return this.kv.incr(`ref:count:${referrerId}`); }
+  async refCount(referrerId: number) { return Number((await this.kv.get<number>(`ref:count:${referrerId}`)) ?? 0); }
+  /** Рассылку одному человеку отправляем один раз. */
+  async markBroadcast(userId: number) { return this.kv.setIfAbsent(`ref:sent:${userId}`, 1); }
   getCache<T>(key: string) { return this.kv.get<T>(`cache:${key}`); }
   setCache(key: string, v: unknown) { return this.kv.set(`cache:${key}`, v); }
 }

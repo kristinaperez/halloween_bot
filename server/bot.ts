@@ -8,7 +8,7 @@
  */
 import {readFile} from 'node:fs/promises';
 import {readdirSync} from 'node:fs';
-import {cfg, isOver, deadlineStr, asset} from './config.js';
+import {cfg, isOver, deadlineStr, asset, refOpen, refDeadlineStr} from './config.js';
 import {Users, type User} from './store.js';
 import {type TG, TelegramError} from './tg.js';
 import {makePoster} from './poster.js';
@@ -203,6 +203,79 @@ async function sendInvoice(d: Deps, uid: number) {
   });
 }
 
+// ---------- рефералка «приведи 3 подруг» ----------
+export const refLink = (uid: number) => `https://t.me/${cfg.botUsername()}?start=ref_${uid}`;
+const left = (n: number) => {
+  const r = Math.max(0, cfg.refGoal() - n);
+  return r === 1 ? 'Осталась одна' : `Осталось ${r}`;
+};
+const shareUrl = (uid: number) =>
+  'https://t.me/share/url?url=' + encodeURIComponent(refLink(uid)) +
+  '&text=' + encodeURIComponent('Кристина на Хэллоуин раздаёт набор, чтобы сделать себе ИИ-помощника 🎃 Заходи по моей ссылке — нажми «Старт», мне засчитается 🙏');
+const refKb = (uid: number) => kb([
+  [{text: '📤 Отправить подругам', url: shareUrl(uid)}],
+  [{text: '📊 Сколько уже пришло', data: 'ref_status'}],
+]);
+
+/** Сообщение для рассылки тем, кто зашёл, но набор не забрал. */
+export const refPitch = (u: {id: number; firstName?: string}) =>
+  `🎃 ${u.firstName ? esc(u.firstName) + ', п' : 'П'}ривет! Это Кристина.\n\n` +
+  'Счастливого Хэллоуина! Рада, что ты с нами 🧡\n' +
+  'Как празднуешь? Тыква, костюм или сериал под пледом? 😄\n\n' +
+  'А теперь к делу.\n' +
+  `Вижу, канала на ${cfg.minSubs()} подписчиков у тебя пока нет.\n` +
+  'И звёзды ты решила приберечь.\n' +
+  'Понимаю. Сама такая 😁\n\n' +
+  'Но откладывать вайб-кодинг на потом — плохая идея. Поэтому вот тебе хэллоуинская сделка:\n\n' +
+  `👯 <b>Приведи в бот ${cfg.refGoal()} подруг по своей ссылке — и набор твой. Бесплатно.</b>\n\n` +
+  `⏳ Но окошко открыто только до <b>${refDeadlineStr()}</b>. Потом карета превращается в тыкву 🎃\n\n` +
+  'Для смелости: я за одну ночь привела в бот 9 человек. Причём совсем незнакомых.\n' +
+  `А тебе нужно всего ${cfg.refGoal()}. Мама, сестра, подруга, коллега — сегодня воскресенье, все дома 😉\n\n` +
+  `Твоя ссылка:\n${refLink(u.id)}\n\n` +
+  `Как только ${cfg.refGoal() === 3 ? 'третья' : 'последняя'} подруга нажмёт в боте «Старт» — набор сам прилетит сюда.\n` +
+  'Время пошло ⏰';
+
+async function refStatus(d: Deps, uid: number) {
+  if (await hasKit(d, uid)) return send(d, uid, 'Набор у тебя уже есть 🎁 Нажми /start → «Забрать набор», если нужно прислать ещё раз.');
+  const n = await d.users.refCount(uid);
+  if (!refOpen()) return send(d, uid, `🦇 Окошко закрылось в ${refDeadlineStr()}. Пришло подруг: ${n} из ${cfg.refGoal()}.\nНабор всё ещё можно забрать за ${cfg.priceStars()} ⭐`, {reply_markup: kb([starsBtn()])});
+  return send(d, uid,
+    `👯 Пришло по твоей ссылке: <b>${n} из ${cfg.refGoal()}</b>\n${left(n)} — и набор твой.\n` +
+    `⏳ До ${refDeadlineStr()}\n\nТвоя ссылка:\n${refLink(uid)}`,
+    {reply_markup: refKb(uid)});
+}
+
+/** Новый человек пришёл по ссылке ref_<id>. */
+async function onReferral(d: Deps, friend: any, referrerId: number) {
+  if (!refOpen() || referrerId === friend.id) return;
+  const ref = await d.users.get(referrerId);
+  if (!ref || !(await d.users.claimReferral(friend.id, referrerId))) return;
+  await d.users.patch(friend.id, {referredBy: referrerId});
+  const n = await d.users.addReferral(referrerId);
+  const name = esc(friend.first_name ?? 'Подруга');
+  if (await hasKit(d, referrerId)) return;
+  if (n < cfg.refGoal()) {
+    const lines = n === 1
+      ? `🎉 Есть первая! ${name} уже в боте.\n${left(n)}. Ты в игре 😉`
+      : `🔥 ${name} тоже здесь! Это ${n} из ${cfg.refGoal()}.\n${left(n)} — и набор твой 🎃`;
+    await send(d, referrerId, lines, {reply_markup: refKb(referrerId)}).catch(e => console.warn('referral notify', e));
+    return;
+  }
+  if (n !== cfg.refGoal()) return; // INCR атомарный: ровно один обработчик видит n === цель
+  // Сначала отмечаем право на набор — если доставка упадёт, «Забрать набор» пришлёт его без оплаты
+  await d.users.patch(referrerId, {path: 'referral'});
+  try {
+    await send(d, referrerId, `🎃 ${name} — ${n}-я! Ты сделала это!\nДержи заслуженный набор 👇`);
+    await deliverKit(d, referrerId);
+  } catch (e) {
+    console.error('referral deliver failed', e);
+    await send(d, referrerId, 'Набор твой, но Telegram сейчас капризничает 😔 Нажми /start → «Забрать набор» — пришлю сразу.').catch(() => {});
+    await notifyAdmin(d, `🚨 Рефералка: ${who(ref)} привела ${n} друзей, но набор не доставлен (id ${referrerId})`);
+    return;
+  }
+  await notifyAdmin(d, `👯 Рефералка: ${who(ref)} привела ${n} друзей и забрала набор`);
+}
+
 // ---------- обработчики ----------
 async function onJoinRequest(d: Deps, req: any) {
   if (req.chat.id !== cfg.channelId()) return;
@@ -222,7 +295,7 @@ async function onJoinRequest(d: Deps, req: any) {
 
 async function hasKit(d: Deps, uid: number) {
   const u = await d.users.get(uid);
-  return !!(u?.deliveredAt || (u?.path === 'stars' && u.chargeId) || (await d.users.getPayment(uid)));
+  return !!(u?.deliveredAt || u?.path === 'referral' || (u?.path === 'stars' && u.chargeId) || (await d.users.getPayment(uid)));
 }
 
 async function kitAction(d: Deps, uid: number) {
@@ -238,7 +311,8 @@ async function kitAction(d: Deps, uid: number) {
     'Вы в канале — отлично! 🎉\n\nКак забрать набор:\n' +
     `📢 <b>Есть свой публичный канал от ${cfg.minSubs()} подписчиков?</b> Опубликуйте у себя пост с подарком — набор бесплатно. Я даже соберу обложку с вашим фото.\n` +
     `⭐ <b>Канала нет?</b> Набор можно забрать за ${cfg.priceStars()} звёзд.`,
-    {reply_markup: kb([[{text: `📢 У меня канал ${cfg.minSubs()}+`, data: 'path_repost'}], starsBtn()])});
+    {reply_markup: kb([[{text: `📢 У меня канал ${cfg.minSubs()}+`, data: 'path_repost'}], starsBtn(),
+      ...(refOpen() ? [[{text: `👯 Позвать ${cfg.refGoal()} подруг — бесплатно`, data: 'ref_status'}]] : [])])});
 }
 
 async function onCallback(d: Deps, q: any) {
@@ -251,6 +325,8 @@ async function onCallback(d: Deps, q: any) {
   switch (q.data) {
     case 'kit':
       return kitAction(d, uid);
+    case 'ref_status':
+      return refStatus(d, uid);
     case 'path_repost':
       await d.users.patch(uid, {state: 'await_channel'});
       return send(d, uid, 'Пришлите ссылку на ваш канал или его @имя.\nНапример: <code>@my_channel</code> или <code>https://t.me/my_channel</code>\n\nКанал должен быть публичным — так я смогу проверить пост.');
@@ -303,14 +379,34 @@ async function onAdmin(d: Deps, uid: number, cmd: string, arg?: string) {
       `📊 Пользователей в боте: ${all.length}\n` +
       `📢 Забрали за пост: ${rep.length} (суммарно ${rep.reduce((s, u) => s + (u.channelSubs ?? 0), 0)} подписчиков в их каналах)\n` +
       `⭐ Купили: ${paid.length} на ${paid.reduce((s, u) => s + (u.stars ?? 0), 0)} звёзд\n` +
+      `👯 Пришли по ссылкам друзей: ${all.filter(u => u.referredBy).length}, забрали за ${cfg.refGoal()} друзей: ${all.filter(u => u.path === 'referral').length}\n` +
       `⏳ Раздача до ${deadlineStr()}`);
     return true;
   }
   if (cmd === '/export') {
-    const cols: (keyof User)[] = ['id', 'username', 'firstName', 'createdAt', 'path', 'channel', 'channelTitle', 'channelSubs', 'postLink', 'stars', 'chargeId', 'deliveredAt'];
+    const cols: (keyof User)[] = ['id', 'username', 'firstName', 'createdAt', 'path', 'channel', 'channelTitle', 'channelSubs', 'postLink', 'stars', 'chargeId', 'deliveredAt', 'refCount', 'referredBy'];
+    for (const u of all) u.refCount = await d.users.refCount(u.id) || undefined;
     const q = (v: unknown) => `"${String(v ?? '').replace(/"/g, '""')}"`;
     const csv = '﻿' + [cols.join(','), ...all.map(u => cols.map(c => q(u[c])).join(','))].join('\n');
     await d.tg.upload('sendDocument', {chat_id: String(uid)}, [{name: 'document', data: new TextEncoder().encode(csv), filename: 'participants.csv', type: 'text/csv'}]);
+    return true;
+  }
+  if (cmd === '/ref_preview') {
+    await send(d, uid, refPitch({id: uid, firstName: all.find(u => u.id === uid)?.firstName}), {reply_markup: refKb(uid)});
+    await send(d, uid, '☝️ Так увидят сообщение участники без набора. Отправить всем: /ref_send');
+    return true;
+  }
+  if (cmd === '/ref_send') {
+    if (!refOpen()) { await send(d, uid, `Окошко уже закрыто (${refDeadlineStr()}). Поменяйте REF_DEADLINE в Vercel.`); return true; }
+    let ok = 0, fail = 0, skip = 0;
+    for (const u of all) {
+      if (u.id === uid || (await hasKit(d, u.id))) { skip++; continue; }
+      if (!(await d.users.markBroadcast(u.id))) { skip++; continue; }
+      try { await send(d, u.id, refPitch(u), {reply_markup: refKb(u.id)}); ok++; }
+      catch (e) { fail++; console.warn('broadcast', u.id, e); }
+      await new Promise(r => setTimeout(r, 60));
+    }
+    await send(d, uid, `📨 Разослала: ${ok}\n🚫 Не дошло (заблокировали бота или ни разу не нажимали «Старт»): ${fail}\n⏭ Пропущено (есть набор или уже получали): ${skip}`);
     return true;
   }
   if (cmd === '/refund') {
@@ -332,6 +428,7 @@ async function onMessage(d: Deps, msg: any) {
   if (msg.chat.type !== 'private') return;
   if (msg.successful_payment) return onPaid(d, msg);
   const uid = msg.from.id;
+  const isNew = !(await d.users.get(uid));
   await d.users.upsert(msg.from);
   const text: string = msg.text ?? '';
 
@@ -350,6 +447,10 @@ async function onMessage(d: Deps, msg: any) {
     }
     // /start kit — пришли по кнопке из приветствия после заявки в канал
     await d.users.patch(uid, {state: null});
+    const rm = c === '/start' && arg ? /^ref_(\d+)$/.exec(arg) : null;
+    if (rm && isNew) {
+      try { await onReferral(d, msg.from, Number(rm[1])); } catch (e) { console.warn('referral failed', e); }
+    }
     if (c === '/start' && arg === 'kit') {
       if (isOver() && !(await hasKit(d, uid))) return send(d, uid, over());
       return kitAction(d, uid);
