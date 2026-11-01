@@ -2,7 +2,7 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "outputDirectory": "public",
   "functions": {
-    "api/telegram.ts": { "maxDuration": 30, "includeFiles": "assets/**" },
+    "api/telegram.ts": { "maxDuration": 60, "includeFiles": "assets/**" },
     "api/recheck.ts": { "maxDuration": 60 }
   },
   "crons": [{ "path": "/api/recheck", "schedule": "0 9 * * *" }]

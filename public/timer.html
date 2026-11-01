@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1">
 <title>Таймер</title>
-<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<script defer src="https://telegram.org/js/telegram-web-app.js"></script>
 <style>
   :root{--bg:#12061F;--card:#1E0B33;--red:#FF2A2A;--off:#3A0A12;--orange:#FF8A1E;--text:#EDE8F5;--muted:#A99BC2}
   *{box-sizing:border-box}
@@ -40,7 +40,7 @@
   </div>
   <p class="goal" id="goal"></p>
 <script>
-  try { Telegram.WebApp.ready(); Telegram.WebApp.expand(); } catch (e) {}
+  addEventListener('load', function () { try { Telegram.WebApp.ready(); Telegram.WebApp.expand(); } catch (e) {} });
   var q = new URLSearchParams(location.search);
   var until = Number(q.get('until')) || 0;
   var n = Math.max(0, Number(q.get('n')) || 0), g = Math.max(1, Number(q.get('g')) || 3);
