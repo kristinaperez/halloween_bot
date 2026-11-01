@@ -27,7 +27,7 @@ export const cfg = {
     const d = new Date(env('REF_DEADLINE', '2026-11-02T05:00:00+03:00'));
     return Number.isNaN(d.getTime()) ? new Date('2026-11-02T05:00:00+03:00') : d;
   },
-  refGoal: () => Number(env('REF_GOAL', '3')),
+  refGoal: () => { const n = Number(env('REF_GOAL', '3')); return Number.isInteger(n) && n > 0 ? n : 3; },
 };
 
 export const refOpen = (now = new Date()) => now <= cfg.refDeadline() && !isOver(now);

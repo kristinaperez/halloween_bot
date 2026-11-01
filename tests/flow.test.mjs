@@ -128,6 +128,13 @@ log.length=0; await bot.handleUpdate(d,msg(104,'/start ref_50'));   // 4-й — 
 assert.ok(!log.some(x=>x[0]==='sendMediaGroup'&&x[1].chat_id===50));
 log.length=0; await bot.handleUpdate(d,cb(60,'ref_status')); assert.match(texts()[0],/0 из 3/);
 log.length=0; await bot.handleUpdate(d,msg(6713072327,'/stats')); assert.match(texts()[0],/Пришли по ссылкам друзей: 4, забрали за 3 друзей: 1/);
+// доставка на третьем друге упала → право на набор сохраняется, админ предупреждён
+await users.upsert(U(70));
+for (const f of [201,202]) await bot.handleUpdate(d,msg(f,'/start ref_70'));
+{ const oc=tg.call; tg.call=async(m,b)=>{ if(m==='sendMediaGroup') throw new Error('tg down'); return oc(m,b); };
+  log.length=0; await bot.handleUpdate(d,msg(203,'/start ref_70')); tg.call=oc; }
+assert.ok(texts().some(t=>t.startsWith('🚨 Рефералка')), 'admin alerted on failed referral delivery');
+log.length=0; await bot.handleUpdate(d,cb(70,'kit')); assert.ok(log.some(x=>x[0]==='sendMediaGroup'&&x[1].chat_id===70), 'referral kit redelivered');
 // окошко закрыто → не считается
 process.env.REF_DEADLINE='2020-01-01T00:00:00Z';
 await bot.handleUpdate(d,msg(105,'/start ref_60')); assert.equal(await users.refCount(60),0);
