@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1">
+<title>Таймер</title>
+<script defer src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+  :root{--bg:#12061F;--card:#1E0B33;--red:#FF2A2A;--off:#3A0A12;--orange:#FF8A1E;--text:#EDE8F5;--muted:#A99BC2}
+  *{box-sizing:border-box}
+  body{margin:0;min-height:100vh;background:radial-gradient(circle at 50% 40%,#2A0E44,var(--bg) 75%);color:var(--text);
+       font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:24px 16px;text-align:center}
+  h1{font-size:20px;margin:0 0 6px;color:var(--orange)}
+  .sub{color:var(--muted);margin:0 0 22px;font-size:15px}
+  .clock{display:flex;align-items:flex-start;justify-content:center;gap:6px;width:100%;max-width:560px}
+  .grp{display:flex;flex-direction:column;align-items:center;gap:8px;flex:2}
+  .pair{display:flex;gap:6px;width:100%}
+  .box{flex:1;aspect-ratio:16/25;background:#12040A;border:2px solid #5A0F1C;border-radius:12px;padding:8% 10%}
+  .box svg{width:100%;height:100%;display:block}
+  .box path{stroke-width:7;stroke-linejoin:round}
+  .on{fill:var(--red);stroke:var(--red);filter:drop-shadow(0 0 4px rgba(255,42,42,.9))}
+  .off{fill:var(--off);stroke:var(--off)}
+  .colon{flex:.35;display:flex;flex-direction:column;justify-content:center;gap:22%;align-self:stretch;align-items:center;padding-bottom:26px}
+  .colon i{width:10px;height:10px;border-radius:50%;background:var(--red);box-shadow:0 0 8px var(--red)}
+  .lbl{font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+  .goal{margin-top:26px;font-size:17px}
+  .goal b{color:var(--orange)}
+  .over{color:var(--red);font-weight:700}
+</style>
+</head>
+<body>
+  <h1>🎃 Хэллоуинская сделка</h1>
+  <p class="sub" id="sub">Приведи 3 подруг — и набор твой. Окошко закроется через:</p>
+  <div class="clock">
+    <div class="grp"><div class="pair"><div class="box" id="d0"></div><div class="box" id="d1"></div></div><span class="lbl">часы</span></div>
+    <div class="colon"><i></i><i></i></div>
+    <div class="grp"><div class="pair"><div class="box" id="d2"></div><div class="box" id="d3"></div></div><span class="lbl">минуты</span></div>
+    <div class="colon"><i></i><i></i></div>
+    <div class="grp"><div class="pair"><div class="box" id="d4"></div><div class="box" id="d5"></div></div><span class="lbl">секунды</span></div>
+  </div>
+  <p class="goal" id="goal"></p>
+<script>
+  addEventListener('load', function () { try { Telegram.WebApp.ready(); Telegram.WebApp.expand(); } catch (e) {} });
+  var q = new URLSearchParams(location.search);
+  var until = Number(q.get('until')) || 0;
+  var n = Math.max(0, Number(q.get('n')) || 0), g = Math.max(1, Number(q.get('g')) || 3);
+  document.getElementById('sub').textContent = 'Приведи ' + g + ' подруг — и набор твой. Окошко закроется через:';
+  document.getElementById('goal').innerHTML = 'Уже пришло: <b>' + n + ' из ' + g + '</b>';
+
+  var SEG = {0:'abcdef',1:'bc',2:'abged',3:'abgcd',4:'fgbc',5:'afgcd',6:'afgedc',7:'abc',8:'abcdefg',9:'abcdfg'};
+  // сегменты в координатах 100×160
+  var P = {
+    a:'M14,6 l8,-6 h56 l8,6 l-8,6 h-56z', g:'M14,80 l8,-6 h56 l8,6 l-8,6 h-56z', d:'M14,154 l8,-6 h56 l8,6 l-8,6 h-56z',
+    f:'M6,14 l6,8 v50 l-6,6 l-6,-6 v-50z', b:'M94,14 l6,8 v50 l-6,6 l-6,-6 v-50z',
+    e:'M6,88 l6,8 v50 l-6,6 l-6,-6 v-50z', c:'M94,88 l6,8 v50 l-6,6 l-6,-6 v-50z'
+  };
+  function draw(el, ch) {
+    if (el.dataset.ch === ch) return;
+    el.dataset.ch = ch;
+    var on = SEG[ch] || '', s = '<svg viewBox="-6 -6 112 172">';
+    for (var k in P) s += '<path d="' + P[k] + '" class="' + (on.indexOf(k) >= 0 ? 'on' : 'off') + '"/>';
+    el.innerHTML = s + '</svg>';
+  }
+  function tick() {
+    var left = Math.max(0, Math.floor((until - Date.now()) / 1000));
+    var hh = Math.min(99, Math.floor(left / 3600)), mm = Math.floor(left % 3600 / 60), ss = left % 60;
+    var str = String(hh).padStart(2, '0') + String(mm).padStart(2, '0') + String(ss).padStart(2, '0');
+    for (var i = 0; i < 6; i++) draw(document.getElementById('d' + i), str[i]);
+    if (left === 0) {
+      document.getElementById('sub').innerHTML = '<span class="over">Окошко закрылось 🦇</span>';
+      return;
+    }
+    setTimeout(tick, 1000 - Date.now() % 1000);
+  }
+  tick();
+</script>
+</body>
+</html>

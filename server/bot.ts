@@ -12,13 +12,16 @@ import {cfg, isOver, deadlineStr, asset, refOpen, refDeadlineStr} from './config
 import {Users, type User} from './store.js';
 import {type TG, TelegramError} from './tg.js';
 import {makePoster} from './poster.js';
+import {timerPng, remainStr} from './timer.js';
 
 export type Deps = {tg: TG; users: Users; fetchPost: (channel: string, id: string) => Promise<string | null>};
 
 // ---------- тексты ----------
 const esc = (s = '') => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-const kb = (rows: {text: string; data?: string; url?: string}[][]) => ({
-  inline_keyboard: rows.map(r => r.map(b => (b.url ? {text: b.text, url: b.url} : {text: b.text, callback_data: b.data}))),
+type Btn = {text: string; data?: string; url?: string; webApp?: string};
+const kb = (rows: Btn[][]) => ({
+  inline_keyboard: rows.map(r => r.map(b =>
+    b.webApp ? {text: b.text, web_app: {url: b.webApp}} : b.url ? {text: b.text, url: b.url} : {text: b.text, callback_data: b.data})),
 });
 const starsBtn = () => [{text: `⭐ Купить за ${cfg.priceStars()} звёзд`, data: 'path_stars'}];
 const kristinaBtn = () => [{text: '🎃 Оставить фото Кристины', data: 'photo_kristina'}];
@@ -212,10 +215,30 @@ const left = (n: number) => {
 const shareUrl = (uid: number) =>
   'https://t.me/share/url?url=' + encodeURIComponent(refLink(uid)) +
   '&text=' + encodeURIComponent('Кристина на Хэллоуин раздаёт набор, чтобы сделать себе ИИ-помощника 🎃 Заходи по моей ссылке — нажми «Старт», мне засчитается 🙏');
-const refKb = (uid: number) => kb([
+const refMs = () => cfg.refDeadline().getTime() - Date.now();
+const timerUrl = (n: number) => `${cfg.siteUrl()}/timer.html?until=${cfg.refDeadline().getTime()}&n=${n}&g=${cfg.refGoal()}`;
+const refKb = (uid: number, n = 0) => kb([
+  ...(cfg.siteUrl().startsWith('https://') ? [[{text: '⏳ Живой таймер', webApp: timerUrl(n)}]] : []),
   [{text: '📤 Отправить подругам', url: shareUrl(uid)}],
   [{text: '📊 Сколько уже пришло', data: 'ref_status'}],
 ]);
+
+/** Картинка с красным таймером + подпись + кнопки. photoId — уже загруженная картинка (для рассылки). */
+async function sendTimer(d: Deps, uid: number, caption: string, n: number, photoId?: string): Promise<string | undefined> {
+  const extra = {caption, parse_mode: 'HTML', reply_markup: refKb(uid, n)};
+  try {
+    if (photoId) { await d.tg.call('sendPhoto', {chat_id: uid, photo: photoId, ...extra}); return photoId; }
+    const r = await d.tg.upload('sendPhoto', {chat_id: String(uid), ...extra},
+      [{name: 'photo', data: await timerPng(refMs()), filename: 'timer.png', type: 'image/png'}]);
+    return r?.photo?.at(-1)?.file_id;
+  } catch (e) {
+    if (e instanceof TelegramError && /blocked|deactivated|chat not found/i.test(e.message)) throw e;
+    console.warn('timer photo failed', e);
+    await send(d, uid, caption, {reply_markup: refKb(uid, n)});
+    return photoId;
+  }
+}
+const timerCaption = () => `⏳ <b>Время пошло!</b>\nОкошко закроется в ${refDeadlineStr()} — осталось ${remainStr(refMs())}.`;
 
 /** Сообщение для рассылки тем, кто зашёл, но набор не забрал. */
 export const refPitch = (u: {id: number; firstName?: string}) =>
@@ -228,21 +251,19 @@ export const refPitch = (u: {id: number; firstName?: string}) =>
   'Понимаю. Сама такая 😁\n\n' +
   'Но откладывать вайб-кодинг на потом — плохая идея. Поэтому вот тебе хэллоуинская сделка:\n\n' +
   `👯 <b>Приведи в бот ${cfg.refGoal()} подруг по своей ссылке — и набор твой. Бесплатно.</b>\n\n` +
-  `⏳ Но окошко открыто только до <b>${refDeadlineStr()}</b>. Потом карета превращается в тыкву 🎃\n\n` +
-  'Для смелости: я за одну ночь привела в бот 9 человек. Причём совсем незнакомых.\n' +
+  `⏳ Но окошко открыто только до <b>${refDeadlineStr()}</b> — это ${remainStr(refMs())}. Потом карета превращается в тыкву 🎃\n\n` +
+  'Для смелости: я за один вечер привела в бот 9 человек. Причём совсем незнакомых.\n' +
   `А тебе нужно всего ${cfg.refGoal()}. Мама, сестра, подруга, коллега — сегодня воскресенье, все дома 😉\n\n` +
   `Твоя ссылка:\n${refLink(u.id)}\n\n` +
-  `Как только ${cfg.refGoal() === 3 ? 'третья' : 'последняя'} подруга нажмёт в боте «Старт» — набор сам прилетит сюда.\n` +
-  'Время пошло ⏰';
+  `Как только ${cfg.refGoal() === 3 ? 'третья' : 'последняя'} подруга нажмёт в боте «Старт» — набор сам прилетит сюда 👇`;
 
 async function refStatus(d: Deps, uid: number) {
   if (await hasKit(d, uid)) return send(d, uid, 'Набор у тебя уже есть 🎁 Нажми /start → «Забрать набор», если нужно прислать ещё раз.');
   const n = await d.users.refCount(uid);
   if (!refOpen()) return send(d, uid, `🦇 Окошко закрылось в ${refDeadlineStr()}. Пришло подруг: ${n} из ${cfg.refGoal()}.\nНабор всё ещё можно забрать за ${cfg.priceStars()} ⭐`, {reply_markup: kb([starsBtn()])});
-  return send(d, uid,
+  await sendTimer(d, uid,
     `👯 Пришло по твоей ссылке: <b>${n} из ${cfg.refGoal()}</b>\n${left(n)} — и набор твой.\n` +
-    `⏳ До ${refDeadlineStr()}\n\nТвоя ссылка:\n${refLink(uid)}`,
-    {reply_markup: refKb(uid)});
+    `⏳ Окошко закроется в ${refDeadlineStr()} — осталось ${remainStr(refMs())}.\n\nТвоя ссылка:\n${refLink(uid)}`, n);
 }
 
 /** Новый человек пришёл по ссылке ref_<id>. */
@@ -258,7 +279,7 @@ async function onReferral(d: Deps, friend: any, referrerId: number) {
     const lines = n === 1
       ? `🎉 Есть первая! ${name} уже в боте.\n${left(n)}. Ты в игре 😉`
       : `🔥 ${name} тоже здесь! Это ${n} из ${cfg.refGoal()}.\n${left(n)} — и набор твой 🎃`;
-    await send(d, referrerId, lines, {reply_markup: refKb(referrerId)}).catch(e => console.warn('referral notify', e));
+    await send(d, referrerId, `${lines}\n⏳ До закрытия окошка: ${remainStr(refMs())}`, {reply_markup: refKb(referrerId, n)}).catch(e => console.warn('referral notify', e));
     return;
   }
   if (n !== cfg.refGoal()) return; // INCR атомарный: ровно один обработчик видит n === цель
@@ -392,17 +413,23 @@ async function onAdmin(d: Deps, uid: number, cmd: string, arg?: string) {
     return true;
   }
   if (cmd === '/ref_preview') {
-    await send(d, uid, refPitch({id: uid, firstName: all.find(u => u.id === uid)?.firstName}), {reply_markup: refKb(uid)});
+    await send(d, uid, refPitch({id: uid, firstName: all.find(u => u.id === uid)?.firstName}));
+    await sendTimer(d, uid, timerCaption(), 0);
     await send(d, uid, '☝️ Так увидят сообщение участники без набора. Отправить всем: /ref_send');
     return true;
   }
   if (cmd === '/ref_send') {
     if (!refOpen()) { await send(d, uid, `Окошко уже закрыто (${refDeadlineStr()}). Поменяйте REF_DEADLINE в Vercel.`); return true; }
     let ok = 0, fail = 0, skip = 0;
+    let photoId: string | undefined;
     for (const u of all) {
       if (u.id === uid || (await hasKit(d, u.id))) { skip++; continue; }
       if (!(await d.users.markBroadcast(u.id))) { skip++; continue; }
-      try { await send(d, u.id, refPitch(u), {reply_markup: refKb(u.id)}); ok++; }
+      try {
+        await send(d, u.id, refPitch(u));
+        photoId = await sendTimer(d, u.id, timerCaption(), 0, photoId);
+        ok++;
+      }
       catch (e) { fail++; console.warn('broadcast', u.id, e); }
       await new Promise(r => setTimeout(r, 60));
     }

@@ -109,13 +109,15 @@ log.length=0; await bot.handleUpdate(d,msg(6713072327,'/ref_send'));
 const sentTo=log.filter(x=>x[0]==='sendMessage'&&/хэллоуинская сделка/.test(x[1].text)).map(x=>x[1].chat_id);
 assert.ok(sentTo.includes(50)&&sentTo.includes(60), 'broadcast to users without kit');
 assert.ok(!sentTo.includes(1)&&!sentTo.includes(2)&&!sentTo.includes(6713072327), 'skip kit owners and admin');
+assert.equal(log.filter(x=>x[0]==='sendPhoto'&&x[2]?.[0]==='timer.png').length,1, 'timer uploaded once');
+assert.ok(log.some(x=>x[0]==='sendPhoto'&&x[1].photo==='P'), 'timer reused by file_id');
 log.length=0; await bot.handleUpdate(d,msg(6713072327,'/ref_send'));
 assert.ok(!log.some(x=>x[0]==='sendMessage'&&/хэллоуинская сделка/.test(x[1].text)), 'no double broadcast');
 await bot.handleUpdate(d,msg(50,'/start ref_50'));                 // сам себя
 await bot.handleUpdate(d,msg(60,'/start ref_50'));                 // старый пользователь
 assert.equal(await users.refCount(50),0);
 log.length=0; await bot.handleUpdate(d,msg(101,'/start ref_50'));
-assert.ok(texts().some(t=>/первая/.test(t)), 'referrer notified 1');
+assert.ok(texts().some(t=>/первая/.test(t)&&/До закрытия окошка/.test(t)), 'referrer notified 1');
 assert.ok(log.some(x=>x[0]==='sendPhoto'||x[0]==='sendMessage'&&x[1].chat_id===101), 'friend gets welcome');
 await bot.handleUpdate(d,msg(101,'/start ref_50'));                 // повтор того же друга
 assert.equal(await users.refCount(50),1);
@@ -126,7 +128,10 @@ assert.ok(texts().some(t=>t.startsWith('👯 Рефералка')), 'admin notif
 const r50=await users.get(50); assert.equal(r50.path,'referral'); assert.ok(r50.deliveredAt); assert.equal((await users.get(103)).referredBy,50);
 log.length=0; await bot.handleUpdate(d,msg(104,'/start ref_50'));   // 4-й — набор второй раз не шлём
 assert.ok(!log.some(x=>x[0]==='sendMediaGroup'&&x[1].chat_id===50));
-log.length=0; await bot.handleUpdate(d,cb(60,'ref_status')); assert.match(texts()[0],/0 из 3/);
+process.env.SITE_URL='https://hb.example';
+log.length=0; await bot.handleUpdate(d,cb(60,'ref_status'));
+const tp=log.find(x=>x[0]==='sendPhoto'&&x[2]?.[0]==='timer.png'); assert.ok(tp, 'timer image sent'); assert.match(tp[1].caption,/0 из 3/);
+assert.match(JSON.stringify(tp[1].reply_markup),/web_app.*timer\.html\?until=/); delete process.env.SITE_URL;
 log.length=0; await bot.handleUpdate(d,msg(6713072327,'/stats')); assert.match(texts()[0],/Пришли по ссылкам друзей: 4, забрали за 3 друзей: 1/);
 // доставка на третьем друге упала → право на набор сохраняется, админ предупреждён
 await users.upsert(U(70));

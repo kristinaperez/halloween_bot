@@ -22,11 +22,13 @@ export const cfg = {
     }
     return d;
   },
-  // Реферальное окошко: до 2 ноября 05:00 по Москве
+  // Реферальное окошко: до 2 ноября 00:00 по Москве
   refDeadline: () => {
-    const d = new Date(env('REF_DEADLINE', '2026-11-02T05:00:00+03:00'));
-    return Number.isNaN(d.getTime()) ? new Date('2026-11-02T05:00:00+03:00') : d;
+    const d = new Date(env('REF_DEADLINE', '2026-11-02T00:00:00+03:00'));
+    return Number.isNaN(d.getTime()) ? new Date('2026-11-02T00:00:00+03:00') : d;
   },
+  /** Адрес сайта на Vercel — для живого таймера (Mini App). */
+  siteUrl: () => (env('SITE_URL') || (process.env.VERCEL_PROJECT_PRODUCTION_URL ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}` : '')).replace(/\/$/, ''),
   refGoal: () => { const n = Number(env('REF_GOAL', '3')); return Number.isInteger(n) && n > 0 ? n : 3; },
 };
 
@@ -34,7 +36,7 @@ export const refOpen = (now = new Date()) => now <= cfg.refDeadline() && !isOver
 
 /** «05:00 по Москве» */
 export function refDeadlineStr(): string {
-  const f = new Intl.DateTimeFormat('ru-RU', {timeZone: 'Europe/Moscow', hour: '2-digit', minute: '2-digit'});
+  const f = new Intl.DateTimeFormat('ru-RU', {timeZone: 'Europe/Moscow', hour: '2-digit', minute: '2-digit', hourCycle: 'h23'});
   return `${f.format(cfg.refDeadline())} по Москве`;
 }
 
