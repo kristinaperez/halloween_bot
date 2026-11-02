@@ -8,7 +8,7 @@
   },
   "scripts": {
     "check": "tsc -p tsconfig.json",
-    "test": "tsx tests/flow.test.mjs && tsx tests/redis.test.mjs",
+    "test": "tsx tests/flow.test.mjs && tsx tests/morok.test.mjs && tsx tests/redis.test.mjs",
     "telegram:webhook": "node --env-file-if-exists=.env scripts/webhook.mjs"
   },
   "dependencies": {

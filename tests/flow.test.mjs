@@ -9,8 +9,8 @@ const log=[]; let members=new Set([1]);
 const tg={
   async call(m,b){ log.push([m,b]);
     if(m==='getChatMember') return {status: members.has(b.user_id)?'member':'left'};
-    if(m==='getChat') { if(b.chat_id==='@bigchan') return {id:-1,type:'channel',title:'Большой'}; if(b.chat_id==='@small') return {id:-2,type:'channel',title:'Мал'}; throw new Error('nf'); }
-    if(m==='getChatMemberCount') return b.chat_id==='@bigchan'?250:12;
+    if(m==='getChat') { if(b.chat_id==='@bigchan') return {id:-1,type:'channel',title:'Большой'}; if(b.chat_id==='@small') return {id:-2,type:'channel',title:'Мал'}; if(b.chat_id==='@tiny') return {id:-3,type:'channel',title:'Крошка'}; throw new Error('nf'); }
+    if(m==='getChatMemberCount') return b.chat_id==='@bigchan'?250:b.chat_id==='@tiny'?6:3;
     if(m==='sendMediaGroup') return b.media.map((_,i)=>({document:{file_id:'C'+i}}));
     return {}; },
   async upload(m,f,files){ log.push([m,f,files.map(x=>x.filename)]);
@@ -38,7 +38,10 @@ log.length=0; await bot.handleUpdate(d,cb(9,'kit')); assert.match(texts()[0],/С
 log.length=0; await bot.handleUpdate(d,cb(1,'kit')); assert.match(texts()[0],/Как забрать набор/);
 // 4. маленький канал
 await bot.handleUpdate(d,cb(1,'path_repost')); log.length=0;
-await bot.handleUpdate(d,msg(1,'@small')); assert.match(texts()[0],/12 подписчиков/);
+await bot.handleUpdate(d,msg(1,'@small')); assert.match(texts()[0],/3 подписчиков/); assert.match(texts()[0],/от 5/);
+// 4б. маленький канал от 5 подписчиков теперь подходит
+await bot.handleUpdate(d,cb(11,'path_repost')); log.length=0;
+await bot.handleUpdate(d,msg(11,'@tiny')); assert.match(texts()[0],/6 подписчиков, подходит/);
 // 5. закрытый канал
 await bot.handleUpdate(d,cb(1,'path_repost')); log.length=0;
 await bot.handleUpdate(d,msg(1,'https://t.me/+xyz')); assert.match(texts()[0],/закрытый канал/);

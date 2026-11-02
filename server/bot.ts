@@ -2,7 +2,7 @@
  * Логика @SantaHalloween2026bot.
  *  1. Заявка в закрытый канал → пишем в личку и одобряем.
  *  2. «Забрать набор» → проверка подписки → путь:
- *     а) свой публичный канал 100+ → обложка с фото → готовый пост → ссылка на пост → набор;
+ *     а) свой публичный канал от MIN_SUBS (5) → обложка с фото → готовый пост → ссылка на пост → набор;
  *     б) нет такого канала → 499 ⭐ → набор.
  *  3. После дедлайна — «раздача завершилась».
  */
@@ -13,8 +13,9 @@ import {Users, type User} from './store.js';
 import {type TG, TelegramError} from './tg.js';
 import {makePoster} from './poster.js';
 import {timerPng, remainStr} from './timer.js';
+import {morokCommand, morokCallback} from './scenario.js';
 
-export type Deps = {tg: TG; users: Users; fetchPost: (channel: string, id: string) => Promise<string | null>};
+export type Deps = {tg: TG; users: Users; fetchPost: (channel: string, id: string) => Promise<string | null>; morokTg?: TG};
 
 // ---------- тексты ----------
 const esc = (s = '') => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -46,7 +47,7 @@ const welcome = () =>
 
 const over = () =>
   `🦇 Хэллоуинская раздача завершилась ${deadlineStr()}.\n` +
-  'Но в канале «Кристина о нейронках» впереди много полезного — оставайтесь!';
+  'Но в канале «Кристина строит миры» впереди много полезного — оставайтесь!';
 
 export const CHANNEL_RE = /^(?:https?:\/\/)?(?:t\.me|telegram\.me)\/([A-Za-z0-9_]{4,})\/?$|^@?([A-Za-z0-9_]{4,})$/;
 export const POST_RE = /(?:https?:\/\/)?(?:t\.me|telegram\.me)\/(?:s\/)?([A-Za-z0-9_]{4,})\/(\d+)/;
@@ -118,7 +119,7 @@ export async function deliverKit(d: Deps, userId: number) {
   await d.users.patch(userId, {state: null, deliveredAt: u?.deliveredAt ?? new Date().toISOString()});
 }
 
-// ---------- путь «канал 100+» ----------
+// ---------- путь «свой канал» ----------
 async function handleChannel(d: Deps, uid: number, text: string) {
   if (/t\.me\/\+|joinchat|t\.me\/c\//.test(text)) {
     return send(d, uid, 'Это ссылка на закрытый канал — его пост я проверить не смогу 😔\nПришлите публичный канал (@имя) или заберите набор за звёзды.',
@@ -304,7 +305,7 @@ async function onJoinRequest(d: Deps, req: any) {
   await d.users.upsert(req.from);
   // Писать можно, пока заявка не обработана: сначала пишем, потом одобряем.
   try {
-    await send(d, req.user_chat_id, '👻 Заявка принята — добро пожаловать в канал «Кристина о нейронках»!');
+    await send(d, req.user_chat_id, '👻 Заявка принята — добро пожаловать в канал «Кристина строит миры»!');
     await sendWelcome(d, req.user_chat_id, true);
   } catch (e) { console.warn('join DM failed', e); }
   try { await d.tg.call('approveChatJoinRequest', {chat_id: req.chat.id, user_id: req.from.id}); }
@@ -326,7 +327,7 @@ async function kitAction(d: Deps, uid: number) {
     return deliverKit(d, uid);
   }
   if (!(await isMember(d, uid))) {
-    return send(d, uid, 'Сначала вступите в канал «Кристина о нейронках» — заявки принимаю моментально ⚡\nПотом нажмите «Проверить».',
+    return send(d, uid, 'Сначала вступите в канал «Кристина строит миры» — заявки принимаю моментально ⚡\nПотом нажмите «Проверить».',
       {reply_markup: kb([[{text: '📢 Вступить в канал', url: cfg.inviteLink()}], [{text: '✅ Проверить', data: 'kit'}]])});
   }
   return send(d, uid,
@@ -338,6 +339,8 @@ async function kitAction(d: Deps, uid: number) {
 }
 
 async function onCallback(d: Deps, q: any) {
+  // Лорд Морок: кнопка «Вызвать Морока» под постом в канале и админ-кнопки сценария
+  if (await morokCallback(d, q)) return;
   await d.tg.call('answerCallbackQuery', {callback_query_id: q.id}).catch(() => {});
   const uid = q.from.id;
   await d.users.upsert(q.from);
@@ -393,6 +396,7 @@ async function onPaid(d: Deps, msg: any) {
 
 async function onAdmin(d: Deps, uid: number, cmd: string, arg?: string) {
   if (uid !== cfg.adminId()) return false;
+  if (cmd.startsWith('/morok_')) return morokCommand(d, cmd, arg);
   const all = await d.users.all();
   if (cmd === '/stats') {
     const rep = all.filter(u => u.path === 'repost' && u.deliveredAt);
