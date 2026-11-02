@@ -10,7 +10,6 @@ export interface TG {
 
 export class TelegramError extends Error {}
 
-const api = (m: string) => `https://api.telegram.org/bot${cfg.token()}/${m}`;
 
 async function parse(res: Response) {
   const j: any = await res.json().catch(() => ({}));
@@ -18,7 +17,10 @@ async function parse(res: Response) {
   return j.result;
 }
 
-export const telegram: TG = {
+/** Клиент Telegram для бота с заданным токеном (основной бот, бот Морока). */
+export function makeTelegram(token: () => string): TG {
+  const api = (m: string) => `https://api.telegram.org/bot${token()}/${m}`;
+  return {
   async call(method, body = {}) {
     const res = await fetch(api(method), {
       method: 'POST', headers: {'Content-Type': 'application/json'},
@@ -39,8 +41,13 @@ export const telegram: TG = {
   async download(fileId) {
     const file = await this.call('getFile', {file_id: fileId});
     if (!file.file_path || (file.file_size ?? 0) > 10 * 1024 * 1024) throw new TelegramError('Фото слишком большое');
-    const res = await fetch(`https://api.telegram.org/file/bot${cfg.token()}/${file.file_path}`, {signal: AbortSignal.timeout(6000)});
+    const res = await fetch(`https://api.telegram.org/file/bot${token()}/${file.file_path}`, {signal: AbortSignal.timeout(6000)});
     if (!res.ok) throw new TelegramError('Не удалось скачать фото');
     return new Uint8Array(await res.arrayBuffer());
   },
 };
+}
+
+export const telegram: TG = makeTelegram(cfg.token);
+/** Отдельный бот Лорда Морока — если задан MOROK_BOT_TOKEN. */
+export const morokTelegram = (): TG | undefined => (cfg.morokToken() ? makeTelegram(cfg.morokToken) : undefined);

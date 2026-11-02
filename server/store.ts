@@ -29,6 +29,7 @@ export interface KV {
   list(prefix: string): Promise<string[]>;
   /** Атомарно +1, возвращает новое значение. */
   incr(key: string): Promise<number>;
+  del(key: string): Promise<void>;
 }
 
 /**
@@ -75,6 +76,7 @@ export class RedisKV implements KV {
     return out;
   }
   async incr(key: string) { return Number(await this.cmd('INCR', key)); }
+  async del(key: string) { await this.cmd('DEL', key); }
   async list(prefix: string) {
     const keys: string[] = [];
     let cursor = '0';
@@ -97,10 +99,11 @@ export class MemoryKV implements KV {
   async getMany<T>(keys: string[]) { return Promise.all(keys.map(k => this.get<T>(k))); }
   async list(prefix: string) { return [...this.data.keys()].filter(k => k.startsWith(prefix)); }
   async incr(key: string) { const v = Number(this.data.get(key) ?? 0) + 1; this.data.set(key, v); return v; }
+  async del(key: string) { this.data.delete(key); }
 }
 
 export class Users {
-  private kv: KV;
+  readonly kv: KV;
   constructor(kv: KV) { this.kv = kv; }
   get(id: number) { return this.kv.get<User>(`user:${id}`); }
   async upsert(from: {id: number; username?: string; first_name?: string}): Promise<User> {
@@ -132,8 +135,8 @@ export class Users {
   savePayment(userId: number, chargeId: string, stars: number) { return this.kv.set(`pay:${userId}`, {chargeId, stars}); }
   getPayment(userId: number) { return this.kv.get<{chargeId: string; stars: number}>(`pay:${userId}`); }
   /** Защита от повторной доставки одного и того же апдейта (хранится 3 дня). */
-  async seenUpdate(updateId: number): Promise<boolean> {
-    return !(await this.kv.setOnce(`upd:${updateId}`, 3 * 24 * 3600));
+  async seenUpdate(updateId: number, prefix = 'upd'): Promise<boolean> {
+    return !(await this.kv.setOnce(`${prefix}:${updateId}`, 3 * 24 * 3600));
   }
   /** Друг засчитывается только одному пригласившему. true — засчитали сейчас. */
   claimReferral(friendId: number, referrerId: number) { return this.kv.setIfAbsent(`ref:by:${friendId}`, referrerId); }

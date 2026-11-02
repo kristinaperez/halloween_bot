@@ -11,7 +11,7 @@ export const cfg = {
   inviteLink: () => env('CHANNEL_INVITE_LINK'),
   contact: () => env('CONTACT', '@KristinaPerez9'),
   botUsername: () => env('BOT_USERNAME', 'SantaHalloween2026bot'),
-  minSubs: () => Number(env('MIN_SUBS', '100')),
+  minSubs: () => Number(env('MIN_SUBS', '5')),
   priceStars: () => Number(env('PRICE_STARS', '499')),
   // Конец раздачи: 8 ноября 23:59 по Мадриду (UTC+1 зимой)
   deadline: () => {
@@ -29,6 +29,10 @@ export const cfg = {
   },
   /** Адрес сайта на Vercel — для живого таймера (Mini App). */
   siteUrl: () => (env('SITE_URL') || (process.env.VERCEL_PROJECT_PRODUCTION_URL ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}` : '')).replace(/\/$/, ''),
+  /** Лорд Морок: отдельный бот (необязательно), тестовый чат, подписи авторов в канале. */
+  morokToken: () => env('MOROK_BOT_TOKEN'),
+  testChatId: () => env('TEST_CHAT_ID'),
+  signatures: () => env('CHANNEL_SIGNATURES') === '1',
   refGoal: () => { const n = Number(env('REF_GOAL', '3')); return Number.isInteger(n) && n > 0 ? n : 3; },
 };
 
