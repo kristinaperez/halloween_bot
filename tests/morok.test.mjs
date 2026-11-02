@@ -107,6 +107,11 @@ log.length = 0; await press(d, 'skip');
 assert.equal(toChannel().length, 0, 'skip does not post');
 assert.equal((await users.kv.get('morok:run')).next, 4);
 
+// 7б. пауза во время неотвеченной отправки → после «Продолжить» снова спрашиваем про шаг, а не мёртвая кнопка
+{ const st7 = await users.kv.get('morok:run'); st7.sending = st7.next; await users.kv.set('morok:run', st7);
+  log.length = 0; await bot.handleUpdate(d, msg(ADMIN, '/morok_stop')); await press(d, 'resume');
+  assert.ok(adminTexts().some(t => /В канале он есть\?/.test(t)), 'resume asks about unanswered step');
+  st7.sending = undefined; await users.kv.set('morok:run', st7); }
 // 8. ошибка Telegram API (пост точно не ушёл) → можно сразу повторить
 tg.call = async (m, b) => { if (b?.chat_id === CH) throw new TelegramError('Bad Request: not enough rights'); return oc(m, b); };
 log.length = 0; await press(d, 'next'); tg.call = oc;

@@ -131,6 +131,9 @@ async function control(d: MorokDeps, st: RunState, done?: string) {
   if (st.status === 'paused') {
     return adminSay(d, `${head}⏸ Сценарий на паузе. Следующий шаг: ${stepLine(st.next)}`, {reply_markup: kb([[{text: '▶ Продолжить', data: 'mk:resume'}]])});
   }
+  if (st.sending !== undefined) {
+    return adminSay(d, `${head}Шаг «${esc(SCENARIO[st.sending].title)}» мог уйти без ответа Telegram. В канале он есть?`, {reply_markup: unknownKb(st, st.sending)});
+  }
   const prev = SCENARIO[st.next - 1];
   return adminSay(d,
     `${head}Следующий шаг: ${stepLine(st.next)}${prev ? `\n💡 ${esc(prev.hint)}` : ''}`,
@@ -229,7 +232,7 @@ type How = 'next' | 'manualDone' | 'asBot' | 'retry' | 'skip';
 type Token = {runId: number; step: number};
 
 async function advance(d: MorokDeps, how: How, token: Token) {
-  if (!(await d.users.kv.setOnce(LOCK, 55))) return adminSay(d, '⏳ Публикую предыдущий шаг, подожди пару секунд.');
+  if (!(await d.users.kv.setOnce(LOCK, 55))) return adminSay(d, '⏳ Публикую предыдущий шаг, подожди пару секунд. Свежие кнопки — /morok_status');
   try { await advanceLocked(d, how, token); }
   finally { await d.users.kv.del(LOCK); }
 }
@@ -302,6 +305,9 @@ const unknownKb = (st: RunState, i: number) =>
   kb([[{text: '✅ Есть — идём дальше', data: btn('skip', st, i)}], [{text: '🔁 Нет — отправить снова', data: btn('retry', st, i)}]]);
 
 async function finish(d: MorokDeps, st: RunState, title: string) {
+  // Пока шаг публиковался, админ мог нажать «Пауза» — не затираем её
+  const latest = await getRun(d);
+  if (latest?.runId === st.runId && latest.status === 'paused') st.status = 'paused';
   if (st.next >= SCENARIO.length) { st.status = 'done'; st.finishedAt = new Date().toISOString(); }
   await saveRun(d, st);
   return control(d, st, title);
