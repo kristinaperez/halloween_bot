@@ -394,6 +394,31 @@ async function onPaid(d: Deps, msg: any) {
   await notifyAdmin(d, `⭐ Покупка за ${p.total_amount} звёзд: ${who(msg.from)}\ncharge_id: <code>${esc(p.telegram_payment_charge_id)}</code>`);
 }
 
+/** Тихий пинг одного человека (только для админа): заблокировал ли он бота + личный канал из профиля. */
+async function checkUser(d: Deps, u: User): Promise<string> {
+  let status: string;
+  try {
+    await d.tg.call('sendChatAction', {chat_id: u.id, action: 'typing'});
+    status = '✅ Бота не блокировал: пинг дошёл.';
+  } catch (e) {
+    const m = e instanceof Error ? e.message : String(e);
+    if (/blocked by the user/i.test(m)) status = '🚫 Заблокировал бота.';
+    else if (/deactivated/i.test(m)) status = '👻 Аккаунт удалён.';
+    else if (/chat not found|can't initiate/i.test(m)) status = '🤷 Диалога с ботом нет: человек ни разу не нажимал «Старт».';
+    else status = `❓ Не удалось проверить: ${esc(m)}`;
+  }
+  let channel = '📢 Личный канал в профиле не указан или скрыт.';
+  try {
+    const pc = (await d.tg.call('getChat', {chat_id: u.id})).personal_chat;
+    if (pc) {
+      let subs = '';
+      try { subs = `, подписчиков: ${await d.tg.call('getChatMemberCount', {chat_id: pc.id})}`; } catch { /* канал может быть недоступен боту */ }
+      channel = `📢 Личный канал в профиле: ${esc(pc.title ?? '')}${pc.username ? ` (@${pc.username})` : ''}${subs}`;
+    }
+  } catch { /* профиль недоступен */ }
+  return `🔎 ${who(u)} · id ${u.id}\n${status}\n${channel}\nВ боте с ${u.createdAt.slice(0, 10)}${u.path ? `, путь: ${u.path}` : ''}.`;
+}
+
 async function onAdmin(d: Deps, uid: number, cmd: string, arg?: string) {
   if (uid !== cfg.adminId()) return false;
   if (cmd.startsWith('/morok_')) return morokCommand(d, cmd, arg);
@@ -439,6 +464,16 @@ async function onAdmin(d: Deps, uid: number, cmd: string, arg?: string) {
       await new Promise(r => setTimeout(r, 60));
     }
     await send(d, uid, `📨 Разослала: ${ok}\n🚫 Не дошло (заблокировали бота или ни разу не нажимали «Старт»): ${fail}\n⏭ Пропущено (есть набор или уже получали): ${skip}`);
+    return true;
+  }
+  if (cmd === '/check') {
+    const q = (arg ?? '').replace(/^@/, '').toLowerCase();
+    const target = q ? all.find(u => String(u.id) === q || u.username?.toLowerCase() === q) : undefined;
+    if (!target) {
+      await send(d, uid, 'Использование: /check @username или /check <user_id>.\nИщу среди тех, кто писал боту или подавал заявку в канал.');
+      return true;
+    }
+    await send(d, uid, await checkUser(d, target));
     return true;
   }
   if (cmd === '/refund') {
