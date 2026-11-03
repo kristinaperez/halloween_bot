@@ -11,7 +11,7 @@
  *  - одновременные нажатия отсекает короткая блокировка `morok:lock`;
  *  - завершённый сценарий повторно запускается только явной командой `/morok_start again`.
  */
-import {existsSync} from 'node:fs';
+import {existsSync, statSync} from 'node:fs';
 import {readFile} from 'node:fs/promises';
 import {cfg, asset} from './config.js';
 import {TelegramError, type TG} from './tg.js';
@@ -86,7 +86,8 @@ export async function publishStep(d: MorokDeps, step: Step, target: Target): Pro
     const isVideo = step.media.endsWith('.mp4');
     const method = isVideo ? 'sendAnimation' : 'sendPhoto';
     const field = isVideo ? 'animation' : 'photo';
-    const cacheKey = `morok-media:${botKey}:${step.media}`;
+    // В ключе размер файла: заменишь картинку — бот загрузит новую, а не возьмёт старую из кэша
+    const cacheKey = `morok-media:${botKey}:${step.media}:${statSync(mediaPath(step.media)).size}`;
     const cached = await d.users.getCache<string>(cacheKey);
     const fields = {...common, caption: text, parse_mode: 'HTML', ...markup};
     if (cached) return (await tg.call(method, {...fields, [field]: cached})).message_id;
